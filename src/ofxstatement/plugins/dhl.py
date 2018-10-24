@@ -9,14 +9,6 @@ SIGNATURES = [
     "Valuta;Datum valute;Datum knjiženja;ID transakcije;Št. za reklamacijo;Prejemnik / Plačnik;Breme;Dobro;Referenca plačnika;Referenca prejemnika;Opis prejemnika",  # Oct 2018
 ]
 
-TRANSACTION_TYPES = {
-   "To ": "XFER",
-   "From ": "XFER",
-   "Cash at ": "ATM",
-   "Top-Up by": "DEP",
-   "Payment from": "DEP",
-}
-
 
 class DhlCSVStatementParser(CsvStatementParser):
 
@@ -25,22 +17,6 @@ class DhlCSVStatementParser(CsvStatementParser):
     def split_records(self):
         return csv.reader(self.fin, delimiter=';', quotechar='"')
 
-    # def parse_value(self, value, field):
-    #     value = value.strip() if value else value
-    #     if field == "bank_account_to":
-    #         return BankAccount("", value)
-    #     else:
-    #         return super().parse_value(value, field)
-
-    # def parse_payee_memo(self, value):
-    #     if 'FX Rate' in value:
-    #         limit = value.find('FX Rate')
-    #         payee = self.parse_value(value[0:limit], 'payee')
-    #         memo = self.parse_value(value[limit:], 'memo')
-    #         return payee, memo
-    #     else:
-    #         return self.parse_value(value, 'payee'), ''
-
     def parse_amount(self, value):
         if not value or not value.strip():
             return 0
@@ -48,54 +24,28 @@ class DhlCSVStatementParser(CsvStatementParser):
         return self.parse_float(value.strip().replace('.', '').replace(',', '.'))
 
     def parse_record(self, line):
-        # # Free Headerline
-        # if self.cur_record <= 1:
-        #     return None
+        try:
+            stmt_line = StatementLine()
+            stmt_line.date = self.parse_datetime(line[1].strip())
 
-        import pdb; pdb.set_trace()
+            # Amount
+            paid_out = -self.parse_amount(line[6])
+            paid_in = self.parse_amount(line[7])
+            stmt_line.amount = paid_out or paid_in
 
-        stmt_line = StatementLine()
-        stmt_line.date = self.parse_datetime(line[1].strip())
+            reference = line[3].strip()
+            trntype = False
 
-        # Amount
-        paid_out = -self.parse_amount(line[2])
-        paid_in = self.parse_amount(line[3])
-        stmt_line.amount = paid_out or paid_in
+            if not trntype:
+                trntype = 'POS'  # Default: Debit card payment
 
-        reference = line[1].strip()
-        trntype = False
-        for prefix, transaction_type in TRANSACTION_TYPES.items():
-            if reference.startswith(prefix):
-                trntype = transaction_type
-                break
+            stmt_line.payee = line[5]
+            stmt_line.memo = line[10]
 
-        if not trntype:
-            trntype = 'POS'  # Default: Debit card payment
-
-        # It's ... pretty ugly, but I see no other way to do this than parse
-        # the reference string because that's all the data we have.
-        stmt_line.trntype = trntype
-        if trntype == 'POS':
-            stmt_line.payee, stmt_line.memo = self.parse_payee_memo(reference)
-        elif reference.startswith('Cash at '):
-            stmt_line.payee, stmt_line.memo = self.parse_payee_memo(
-                reference[8:])
-        elif reference.startswith('To ') or reference.startswith('From '):
-            stmt_line.payee = self.parse_value(
-                reference[reference.find(' '):], 'payee'
-            )
-        else:
-            stmt_line.memo = self.parse_value(reference, 'memo')
-
-        # Notes (from Apr-2018)
-        if len(line) > 8 and line[8].strip():
-            if not stmt_line.memo:
-                stmt_line.memo = u''
-            elif len(stmt_line.memo.strip()) > 0:
-                stmt_line.memo += u' '
-            stmt_line.memo += u'({})'.format(line[8].strip())
-
-        return stmt_line
+            return stmt_line
+        except Exception as e:
+            print('Something went wrong: %s' % e)
+            return None
 
 
 class DHLPlugin(Plugin):
@@ -103,6 +53,7 @@ class DHLPlugin(Plugin):
         f = open(fin, "r", encoding='windows-1250')
         line = f.readline()
         while line != '':
+            line = line.strip()
             if line in SIGNATURES:
                 parser = DhlCSVStatementParser(f)
                 if 'account' in self.settings:
