@@ -60,8 +60,12 @@ class DhlCSVStatementParser(CsvStatementParser):
             if not trntype:
                 trntype = 'POS'  # Default: Debit card payment
 
-            stmt_line.payee = line[self.line_map['payee']]
-            stmt_line.memo = line[self.line_map['memo']]
+            if paid_out:
+                stmt_line.payee = line[self.line_map['memo']]
+                stmt_line.memo = line[self.line_map['payee']]
+            else:
+                stmt_line.payee = line[self.line_map['payee']]
+                stmt_line.memo = line[self.line_map['memo']]
 
             return stmt_line
         except Exception as e:
